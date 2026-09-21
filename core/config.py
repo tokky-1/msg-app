@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     DB_ECHO: bool = False
-
+    LOG_LEVEL: str = "INFO"
+    
     DB_HOST: str
     DB_PORT: int = 5432
     DB_USER: str
