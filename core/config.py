@@ -7,14 +7,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
 class Settings(BaseSettings):
-    DB_HOST: str
-    DB_PORT: int
-    DB_USER: str
-    DB_PASSWORD: str
-    DB_NAME:str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    DB_ECHO: bool = False
+
+    DB_HOST: str
+    DB_PORT: int = 5432
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
     @property
     def DB_URL(self) -> str:
         return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}" 
@@ -22,6 +24,5 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings():
     return Settings()
-
 
 settings = get_settings()

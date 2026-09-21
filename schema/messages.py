@@ -1,7 +1,7 @@
 from pydantic import BaseModel,ConfigDict
 from datetime import datetime
 
-class MessageCreate(BaseModel):
+class MessageCreate(BaseModel):     
     receiver_id: int
     content: str
 
@@ -12,4 +12,4 @@ class MessageResponse(BaseModel):
     content: str
     timestamp: datetime
 
-model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)

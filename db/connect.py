@@ -4,7 +4,7 @@ from core.config import settings
 
 
 DB_URL = settings.DB_URL
-engine = create_engine(DB_URL, connect_args={"connect_timeout": 5}, echo=True)
+engine = create_engine(DB_URL, connect_args={"connect_timeout": 5}, echo=settings.DB_ECHO)
 SessionLocal = sessionmaker(bind = engine)
 Base = declarative_base()
 
