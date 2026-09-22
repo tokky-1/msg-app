@@ -24,6 +24,10 @@ class RateLimitError(DomainError):
     pass
 
 
+class ConflictError(DomainError):
+    pass
+
+
 # Specific errors
 
 class MessageNotFoundError(NotFoundError):

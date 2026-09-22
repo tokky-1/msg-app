@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     DB_ECHO: bool = False
     LOG_LEVEL: str = "INFO"
+    CORS_ORIGINS: list[str]
     
     DB_HOST: str
     DB_PORT: int = 5432
