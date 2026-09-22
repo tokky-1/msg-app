@@ -42,6 +42,18 @@ class UserNotFoundError(NotFoundError):
         super().__init__(f"User with username '{username}' not found.")
 
 
+class UsernameTakenError(ConflictError):
+    def __init__(self, username: str):
+        self.username = username
+        super().__init__(f"Username '{username}' is already taken.")
+
+
+class EmailTakenError(ConflictError):
+    def __init__(self, email: str):
+        self.email = email
+        super().__init__(f"Email '{email}' is already registered.")
+
+
 class MessageAccessDeniedError(PermissionDeniedError):
     def __init__(self, message: str = "Access denied"):
         super().__init__(message)
@@ -62,3 +74,4 @@ class RateLimitExceededError(RateLimitError):
     def __init__(self, max_per_minute: int):
         self.max_per_minute = max_per_minute
         super().__init__(f"Rate limit exceeded. Maximum {max_per_minute} messages per minute.")
+
