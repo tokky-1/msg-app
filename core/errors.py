@@ -28,6 +28,11 @@ class ConflictError(DomainError):
     pass
 
 
+class AuthenticationError(DomainError):
+    def __init__(self, message: str = "Could not validate credentials"):
+        super().__init__(message)
+
+
 # Specific errors
 
 class MessageNotFoundError(NotFoundError):

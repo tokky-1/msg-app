@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from core.config import settings
 from core.errors import (
+    AuthenticationError,
     ConflictError,
     DomainError,
     NotFoundError,
@@ -25,10 +26,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Let cross-origin frontend code read the auth scheme off a 401.
+    expose_headers=["WWW-Authenticate"],
 )
 
 # Map each domain error category to an HTTP status code.
 DOMAIN_ERROR_STATUS = {
+    AuthenticationError: 401,
     NotFoundError: 404,
     PermissionDeniedError: 403,
     RuleViolationError: 400,
@@ -37,8 +41,11 @@ DOMAIN_ERROR_STATUS = {
 }
 
 def make_domain_error_handler(status_code: int):
+    # RFC 9110: a 401 must tell the client which auth scheme to use.
+    headers = {"WWW-Authenticate": "Bearer"} if status_code == 401 else None
+
     async def handler(request: Request, exc: DomainError):
-        return JSONResponse(status_code=status_code, content={"detail": exc.message})
+        return JSONResponse(status_code=status_code, content={"detail": exc.message}, headers=headers)
     return handler
 
 for error_cls, status_code in DOMAIN_ERROR_STATUS.items():

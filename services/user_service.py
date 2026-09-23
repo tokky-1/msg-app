@@ -3,15 +3,20 @@ from sqlalchemy.orm import Session
 from repository.mes_repo import MessageRepository
 from repository.user_repo import UserRepository
 from core.errors import (
+    AuthenticationError,
     ConflictError,
     EmailTakenError,
     SelfMessagingError,
     UserNotFoundError,
     UsernameTakenError,
 )
-from core.security import createhash
+from core.security import createhash, verifyhash
 from models.user import User
-from schema.auth import RegisterRequest
+from schema.auth import LoginRequest, RegisterRequest
+
+# Verified against when the username doesn't exist, so an unknown user costs the same
+# hash time as a wrong password and response timing doesn't reveal which usernames exist.
+_DUMMY_HASH = createhash("dummy-password-for-timing")
 
 class UserService:
     def __init__(self, db: Session):
@@ -60,3 +65,15 @@ class UserService:
             if constraint == "users_email_key":
                 raise EmailTakenError(data.email) from e
             raise ConflictError("Username or email is already registered.") from e
+
+    def authenticate(self, data: LoginRequest) -> User:
+        user = self.user_repo.get_user_by_username(data.username)
+
+        if user is None:
+            verifyhash(data.password, _DUMMY_HASH)
+            raise AuthenticationError("Incorrect username or password")
+
+        if not verifyhash(data.password, user.hashed_password):
+            raise AuthenticationError("Incorrect username or password")
+
+        return user
