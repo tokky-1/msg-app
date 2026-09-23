@@ -12,7 +12,7 @@ from core.errors import (
     RuleViolationError,
 )
 from core.log_config import setup_logging
-from routes import health ,auth, message
+from routes import health ,auth, message,ws
 
 setup_logging(settings.LOG_LEVEL)
 app = FastAPI(title="MSG",
@@ -54,3 +54,4 @@ for error_cls, status_code in DOMAIN_ERROR_STATUS.items():
 app.include_router(health.router)
 app.include_router(auth.authrouter)
 app.include_router(message.router)
+app.include_router(ws.router)
