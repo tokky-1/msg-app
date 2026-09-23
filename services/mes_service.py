@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from repository.mes_repo import MessageRepository
+from repository.user_repo import UserRepository
 from schema.messages import MessageCreate
-from core.errors import (EditWindowExpiredError, MessageAccessDeniedError, MessageNotFoundError,RateLimitExceededError,SelfMessagingError)
+from core.errors import (EditWindowExpiredError, MessageAccessDeniedError, MessageNotFoundError,RateLimitExceededError,ReceiverNotFoundError,SelfMessagingError)
 
 # Configuration constants
 MAX_MESSAGES_PER_MINUTE = 10
@@ -11,10 +12,15 @@ EDIT_WINDOW_MINUTES = 10
 class MessageService:
     def __init__(self, db: Session):
         self.repo = MessageRepository(db)
+        self.user_repo = UserRepository(db)
 
     def send_message(self, sender_id: int, message_data: MessageCreate):
         if sender_id == message_data.receiver_id:
             raise SelfMessagingError()
+
+        # Without this the insert hits the receiver_id foreign key and surfaces as a 500.
+        if self.user_repo.get_by_id(message_data.receiver_id) is None:
+            raise ReceiverNotFoundError(message_data.receiver_id)
 
         # 1. Rate Limiting Check
         one_minute_ago = datetime.now(timezone.utc) - timedelta(minutes=1)
@@ -75,5 +81,5 @@ class MessageService:
         self.repo.delete_message(message)
         return {"detail": "Message successfully deleted"}
 
-    def get_conversation_history(self, current_user_id: int, other_user_id: int):
-        return self.repo.get_conversation(current_user_id, other_user_id)
+    def get_conversation_history(self, current_user_id: int, other_user_id: int, limit: int = 50, offset: int = 0):
+        return self.repo.get_conversation(current_user_id, other_user_id, limit=limit, offset=offset)

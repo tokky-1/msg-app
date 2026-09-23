@@ -47,6 +47,12 @@ class UserNotFoundError(NotFoundError):
         super().__init__(f"User with username '{username}' not found.")
 
 
+class ReceiverNotFoundError(NotFoundError):
+    def __init__(self, receiver_id: int):
+        self.receiver_id = receiver_id
+        super().__init__(f"Recipient with id {receiver_id} does not exist.")
+
+
 class UsernameTakenError(ConflictError):
     def __init__(self, username: str):
         self.username = username
