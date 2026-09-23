@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import List, Optional
-from sqlalchemy.orm import Session
+from typing import List, Optional, Tuple
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session, aliased
 from models.message import Message
+from models.user import User
 
 class MessageRepository:
     def __init__(self, db: Session):
@@ -32,6 +34,44 @@ class MessageRepository:
             .order_by(Message.timestamp.asc())
             .offset(offset)
             .limit(limit)
+            .all()
+        )
+
+    def get_inbox(self, user_id: int) -> List[Tuple[Message, str]]:
+        """Fetch the most recent message per conversation partner, newest first,
+        paired with that partner's username."""
+        # Whichever side of the row isn't this user.
+        partner_id = case(
+            (Message.sender_id == user_id, Message.receiver_id),
+            else_=Message.sender_id,
+        )
+
+        # id breaks ties so two messages sharing a timestamp still rank deterministically.
+        row_number = func.row_number().over(
+            partition_by=partner_id,
+            order_by=(Message.timestamp.desc(), Message.id.desc()),
+        )
+
+        ranked = (
+            self.db.query(
+                Message,
+                partner_id.label("partner_id"),
+                row_number.label("row_number"),
+            )
+            .filter(
+                (Message.sender_id == user_id) | (Message.receiver_id == user_id)
+            )
+            .subquery()
+        )
+
+        latest = aliased(Message, ranked)
+        partner = aliased(User)
+
+        return (
+            self.db.query(latest, partner.username)
+            .join(partner, partner.id == ranked.c.partner_id)
+            .filter(ranked.c.row_number == 1)
+            .order_by(ranked.c.timestamp.desc(), ranked.c.id.desc())
             .all()
         )
 

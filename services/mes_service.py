@@ -81,5 +81,8 @@ class MessageService:
         self.repo.delete_message(message)
         return {"detail": "Message successfully deleted"}
 
+    def get_inbox(self, user_id: int):
+        return self.repo.get_inbox(user_id)
+
     def get_conversation_history(self, current_user_id: int, other_user_id: int, limit: int = 50, offset: int = 0):
         return self.repo.get_conversation(current_user_id, other_user_id, limit=limit, offset=offset)

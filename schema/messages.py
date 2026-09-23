@@ -16,3 +16,9 @@ class MessageResponse(BaseModel):
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class InboxItem(BaseModel):
+    """One conversation in the inbox: its latest message plus who it's with."""
+    message: MessageResponse
+    partner_username: str
