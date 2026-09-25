@@ -19,3 +19,13 @@ dependencies = [
     "uvicorn>=0.53.0",
     "websockets>=17.1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest-mock>=3.15.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Flat top-level packages (services, core, repository) live at the project root.
+pythonpath = ["."]
