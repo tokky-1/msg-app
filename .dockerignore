@@ -1,8 +1,24 @@
-.git
-.env
-.env.example
-__pycache__
-*.pyc
-.pytest_cache
-.gitignore
-tests/
+# Patterns are relative to the build context (the repo root), so anything that
+# can appear inside backend/ needs a ** prefix to still match after the split.
+
+# VCS
+**/.git
+**/.gitignore
+
+# Secrets and local config - compose injects these as env vars instead
+**/.env
+**/.env.example
+
+# Python caches and local virtualenvs
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.venv
+**/*.egg-info
+
+# Tests are not needed in the runtime image
+backend/tests/
+
+# The frontend is not part of the backend image
+frontend/
+**/node_modules

@@ -1,11 +1,11 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# Repo-wide ignores. backend/.gitignore and frontend/.gitignore cover the
+# language-specific ones for their own trees.
 
-# Virtual environments
-.venv
-.env
+# Editor and tooling scratch
+.claude/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
