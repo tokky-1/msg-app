@@ -1,0 +1,72 @@
+/* MSG design tokens.
+   Five colours, each with exactly one job. The two "voice" colours map onto the
+   backend's sender_id / receiver_id pair — every message on screen is either
+   sky (yours) or blush (theirs), and nothing else uses them. */
+
+:root {
+  /* Paper — every surface you read on. */
+  --paper: #fcecc9;
+  --paper-hi: #fff7e6;
+  --paper-low: #f3deb6;
+  /* Cream softened for secondary text on navy; still cream, just quieter. */
+  --paper-dim: rgba(252, 236, 201, 0.9);
+
+  /* Ink — chrome and type. */
+  --ink: #445e93;
+  --ink-deep: #1f2a44;
+  --ink-shade: #37497a;
+
+  /* The two voices. */
+  --sky: #7eb2dd;
+  --blush: #fcb0b3;
+
+  /* Alarm. Only ever: the live pulse, an unread mark, an error rule, or the
+     fill behind a confirm-delete. Never a text colour, never decoration. */
+  --alarm: #f93943;
+
+  --rule: rgba(31, 42, 68, 0.14);
+  --rule-strong: rgba(31, 42, 68, 0.28);
+  --rule-onink: rgba(252, 236, 201, 0.22);
+
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --text: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+
+  /* Type scale, major third off a 16px body. */
+  --t-micro: 0.75rem;
+  --t-meta: 0.8125rem;
+  --t-small: 0.9375rem;
+  --t-body: 1rem;
+  --t-lead: 1.125rem;
+  --t-h3: 1.5rem;
+  --t-h2: 2rem;
+  --t-h1: 3rem;
+  --t-display: clamp(3.75rem, 13vw, 6.5rem);
+
+  /* Radius encodes kind: panels are flat, controls are soft, bubbles are round
+     with one corner cut toward whoever spoke. */
+  --r-control: 10px;
+  --r-bubble: 18px;
+  --r-tail: 4px;
+
+  --gap-1: 0.25rem;
+  --gap-2: 0.5rem;
+  --gap-3: 0.75rem;
+  --gap-4: 1rem;
+  --gap-5: 1.5rem;
+  --gap-6: 2rem;
+  --gap-7: 3rem;
+  --gap-8: 4.5rem;
+
+
+  /* A trace of paper grain. At this strength you never see it directly; you
+     only notice its absence, because flat cream reads as a blank div. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)' opacity='0.055'/%3E%3C/svg%3E");
+  --rail-w: 15rem;
+  /* Three curves, each with a job. The built-in CSS easings are too weak to
+     read as intentional; these are the strong variants.
+     Never ease-in on UI — it delays the first frame, which is the one the
+     user is watching hardest. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+}

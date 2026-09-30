@@ -1,0 +1,93 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--text);
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--ink-deep);
+  /* Deeper than the app frame, so the column reads as a panel on a wide screen. */
+  background: var(--paper-low);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  margin: 0;
+  color: var(--ink-deep);
+}
+
+p {
+  margin: 0;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink-deep);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.on-ink :focus-visible {
+  outline-color: var(--paper);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    /* Delays have to go too. A staggered row with a 240ms delay and a
+       near-zero duration holds its "from" state — invisible — for 240ms and
+       then pops in, which is worse than the animation it replaced. */
+    animation-delay: 0.001ms !important;
+    transition-delay: 0.001ms !important;
+  }
+}
