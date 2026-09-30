@@ -2,27 +2,29 @@ services:
   db:
     image: postgres:15
     env_file:
-      - .env
+      - ./backend/.env
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
+      # ${...} is interpolated from compose's own env file, not from env_file
+      # above, so run compose with: --env-file ./backend/.env
+      - POSTGRES_USER=${DB_USER:?set DB_USER - run compose with --env-file ./backend/.env}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD - run compose with --env-file ./backend/.env}
+      - POSTGRES_DB=${DB_NAME:?set DB_NAME - run compose with --env-file ./backend/.env}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
-      
+
   app:
     build: .
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - ./backend/.env
     environment:
       - DB_HOST=db
     depends_on:
