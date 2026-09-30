@@ -36,3 +36,20 @@ def token(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @authrouter.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@authrouter.get("/users/{username}", response_model=UserResponse)
+def get_user(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resolve a username to the account behind it.
+
+    Sending needs a receiver_id, and a client that has never messaged someone
+    has no way to learn theirs: /messages/conversation/{username} returns an
+    empty list for a fresh conversation, which carries no id. Reuses the
+    conversation-partner lookup, so an unknown username 404s and your own
+    username is refused exactly as it is everywhere else.
+    """
+    return UserService(db).get_conversation_partner(current_user.id, username)
