@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import timedelta
 from typing import List, Optional, Tuple
-from sqlalchemy import case, func
+from sqlalchemy import Interval, case, cast, func, literal
 from sqlalchemy.orm import Session, aliased
 from models.message import Message
+from models.send_event import MessageSendEvent
 from models.user import User
 
 class MessageRepository:
@@ -85,13 +86,30 @@ class MessageRepository:
         self.db.delete(message)
         self.db.commit()
 
-    def count_messages_sent_since(self, sender_id: int, since_time: datetime) -> int:
-        """Helper query used by Service layer for rate limiting."""
+    def record_send(self, sender_id: int) -> None:
+        """Log an accepted send for the rate limiter.
+
+        Deliberately does not commit: the caller pairs this with
+        create_message so the log entry and the message land in one
+        transaction, and a failed insert cannot leave quota consumed with no
+        message to show for it.
+        """
+        self.db.add(MessageSendEvent(sender_id=sender_id))
+        self.db.flush()
+
+    def count_sends_in_window(self, sender_id: int, window: timedelta) -> int:
+        """How many sends this user has made inside the window.
+
+        now() is the database's clock, and created_at is stamped by the same
+        clock, so the comparison holds even when the app container's clock has
+        drifted from the database's.
+        """
+        cutoff = func.now() - cast(literal(window), Interval)
         return (
-            self.db.query(Message)
+            self.db.query(MessageSendEvent)
             .filter(
-                Message.sender_id == sender_id,
-                Message.timestamp >= since_time
+                MessageSendEvent.sender_id == sender_id,
+                MessageSendEvent.created_at >= cutoff,
             )
             .count()
         )

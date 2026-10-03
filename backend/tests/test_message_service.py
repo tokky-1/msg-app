@@ -5,7 +5,8 @@ domain error is raised, *and* the service stopped before reaching the repo.
 
 Boundary decisions pinned here:
   * rate limit -- the check is ``recent_count >= 10``, so 10 messages inside the
-    window are allowed and the 11th is rejected.
+    window are allowed and the 11th is rejected. The count comes from an
+    append-only send log, so deleting messages cannot hand quota back.
   * edit window -- the check is ``elapsed > timedelta(minutes=10)``, so the
     boundary is INCLUSIVE: a message edited at exactly 10:00.000000 still goes
     through, and 10:00.000001 does not.
@@ -25,7 +26,11 @@ from core.errors import (
     SelfMessagingError,
 )
 from schema.messages import MessageCreate
-from services.mes_service import EDIT_WINDOW_MINUTES, MAX_MESSAGES_PER_MINUTE
+from services.mes_service import (
+    EDIT_WINDOW_MINUTES,
+    MAX_MESSAGES_PER_MINUTE,
+    RATE_LIMIT_WINDOW,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +46,8 @@ def test_messaging_yourself_is_rejected_before_any_repo_call(service, message_re
     message_repo.create_message.assert_not_called()
     # The guard runs first, so we never look the user up or count anything either.
     user_repo.get_by_id.assert_not_called()
-    message_repo.count_messages_sent_since.assert_not_called()
+    user_repo.lock_for_update.assert_not_called()
+    message_repo.count_sends_in_window.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +65,8 @@ def test_unknown_receiver_is_rejected_before_the_insert(service, message_repo, u
     assert exc_info.value.receiver_id == 404
     # The whole point of the lookup: never let the insert hit the foreign key.
     message_repo.create_message.assert_not_called()
-    message_repo.count_messages_sent_since.assert_not_called()
+    user_repo.lock_for_update.assert_not_called()
+    message_repo.count_sends_in_window.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -67,10 +74,10 @@ def test_unknown_receiver_is_rejected_before_the_insert(service, message_repo, u
 # ---------------------------------------------------------------------------
 
 def test_a_valid_message_is_handed_to_the_repo_intact(
-    service, message_repo, user_repo, existing_receiver, frozen_now
+    service, message_repo, user_repo, existing_receiver
 ):
     user_repo.get_by_id.return_value = existing_receiver
-    message_repo.count_messages_sent_since.return_value = 0
+    message_repo.count_sends_in_window.return_value = 0
 
     result = service.send_message(
         SENDER_ID, MessageCreate(receiver_id=RECEIVER_ID, content="hello")
@@ -81,34 +88,37 @@ def test_a_valid_message_is_handed_to_the_repo_intact(
     )
     assert result is message_repo.create_message.return_value
     # The rate-limit window is the last minute, not some other span.
-    message_repo.count_messages_sent_since.assert_called_once_with(
-        SENDER_ID, frozen_now - timedelta(minutes=1)
-    )
+    message_repo.count_sends_in_window.assert_called_once_with(SENDER_ID, RATE_LIMIT_WINDOW)
+    assert RATE_LIMIT_WINDOW == timedelta(minutes=1)
+    # An accepted send is logged, and logged once.
+    message_repo.record_send.assert_called_once_with(SENDER_ID)
 
 
 # ---------------------------------------------------------------------------
 # send_message: rate limit
 # ---------------------------------------------------------------------------
 
-def test_ten_messages_a_minute_go_through_and_the_eleventh_is_rejected(
-    service, message_repo, user_repo, existing_receiver, frozen_now
-):
-    """Walk the real sequence rather than asserting against a single count.
+def _wire_stateful_repo(message_repo, frozen_now):
+    """A fake that counts the append-only send log, the way the real one does.
 
-    The fake repo counts what it has actually created, so an off-by-one in the
-    threshold cannot hide behind a hand-picked number.
+    `sends` is what the limiter reads; `created` is what survives deletion.
+    Keeping them separate is the point: the two must be able to disagree.
     """
-    user_repo.get_by_id.return_value = existing_receiver
+    sends = []
     created = []
 
-    def count_messages_sent_since(sender_id, since_time):
+    def record_send(sender_id):
         assert sender_id == SENDER_ID
-        assert since_time == frozen_now - timedelta(minutes=1)
-        return len(created)
+        sends.append(sender_id)
+
+    def count_sends_in_window(sender_id, window):
+        assert sender_id == SENDER_ID
+        assert window == RATE_LIMIT_WINDOW
+        return len(sends)
 
     def create_message(sender_id, receiver_id, content):
         row = SimpleNamespace(
-            id=len(created) + 1,
+            id=len(sends),
             sender_id=sender_id,
             receiver_id=receiver_id,
             content=content,
@@ -117,8 +127,22 @@ def test_ten_messages_a_minute_go_through_and_the_eleventh_is_rejected(
         created.append(row)
         return row
 
-    message_repo.count_messages_sent_since.side_effect = count_messages_sent_since
+    message_repo.record_send.side_effect = record_send
+    message_repo.count_sends_in_window.side_effect = count_sends_in_window
     message_repo.create_message.side_effect = create_message
+    return sends, created
+
+
+def test_ten_messages_a_minute_go_through_and_the_eleventh_is_rejected(
+    service, message_repo, user_repo, existing_receiver, frozen_now
+):
+    """Walk the real sequence rather than asserting against a single count.
+
+    The fake counts what the service actually logged, so an off-by-one in the
+    threshold cannot hide behind a hand-picked number.
+    """
+    user_repo.get_by_id.return_value = existing_receiver
+    sends, created = _wire_stateful_repo(message_repo, frozen_now)
 
     for n in range(1, 11):
         service.send_message(
@@ -135,6 +159,76 @@ def test_ten_messages_a_minute_go_through_and_the_eleventh_is_rejected(
     assert exc_info.value.max_per_minute == 10
     assert message_repo.create_message.call_count == 10, "the eleventh must not reach the repo"
     assert len(created) == 10
+    assert len(sends) == 10, "a rejected send must not consume quota"
+
+
+def test_deleting_your_own_messages_does_not_hand_back_quota(
+    service, message_repo, user_repo, existing_receiver, frozen_now
+):
+    """The defect that made the limit decorative.
+
+    The window used to count rows in `messages`, and DELETE /messages/{id} is a
+    hard delete, so send ten, delete ten, send ten more ran forever. Against the
+    live API that bought exactly one extra send per deletion.
+    """
+    user_repo.get_by_id.return_value = existing_receiver
+    sends, created = _wire_stateful_repo(message_repo, frozen_now)
+
+    for n in range(MAX_MESSAGES_PER_MINUTE):
+        service.send_message(
+            SENDER_ID, MessageCreate(receiver_id=RECEIVER_ID, content=f"message {n}")
+        )
+
+    # Every one of them is deleted, exactly as the delete route would.
+    created.clear()
+
+    with pytest.raises(RateLimitExceededError):
+        service.send_message(
+            SENDER_ID, MessageCreate(receiver_id=RECEIVER_ID, content="a free one, surely")
+        )
+
+    assert len(sends) == MAX_MESSAGES_PER_MINUTE
+    assert message_repo.create_message.call_count == MAX_MESSAGES_PER_MINUTE
+
+
+def test_the_sender_is_locked_before_the_window_is_counted(
+    service, message_repo, user_repo, existing_receiver
+):
+    """Counting and inserting are two statements.
+
+    Without a lock held across both, two of this sender's requests can each
+    read a count under the cap and both be allowed through.
+    """
+    user_repo.get_by_id.return_value = existing_receiver
+    steps = []
+
+    user_repo.lock_for_update.side_effect = lambda user_id: steps.append(("lock", user_id))
+    message_repo.count_sends_in_window.side_effect = (
+        lambda sender_id, window: steps.append(("count", sender_id)) or 0
+    )
+    message_repo.record_send.side_effect = lambda sender_id: steps.append(("record", sender_id))
+    message_repo.create_message.side_effect = lambda **kw: steps.append(("insert", kw["sender_id"]))
+
+    service.send_message(SENDER_ID, MessageCreate(receiver_id=RECEIVER_ID, content="hello"))
+
+    assert [name for name, _ in steps] == ["lock", "count", "record", "insert"]
+    assert {user_id for _, user_id in steps} == {SENDER_ID}
+
+
+def test_a_rejected_send_still_locks_but_logs_nothing(
+    service, message_repo, user_repo, existing_receiver
+):
+    user_repo.get_by_id.return_value = existing_receiver
+    message_repo.count_sends_in_window.return_value = MAX_MESSAGES_PER_MINUTE
+
+    with pytest.raises(RateLimitExceededError):
+        service.send_message(
+            SENDER_ID, MessageCreate(receiver_id=RECEIVER_ID, content="over the line")
+        )
+
+    user_repo.lock_for_update.assert_called_once_with(SENDER_ID)
+    message_repo.record_send.assert_not_called()
+    message_repo.create_message.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -157,7 +251,7 @@ def test_rate_limit_threshold_sits_exactly_at_ten(
     expect_rejection,
 ):
     user_repo.get_by_id.return_value = existing_receiver
-    message_repo.count_messages_sent_since.return_value = already_sent_this_minute
+    message_repo.count_sends_in_window.return_value = already_sent_this_minute
 
     payload = MessageCreate(receiver_id=RECEIVER_ID, content="one more")
 
