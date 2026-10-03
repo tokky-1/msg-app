@@ -86,3 +86,14 @@ class RateLimitExceededError(RateLimitError):
         self.max_per_minute = max_per_minute
         super().__init__(f"Rate limit exceeded. Maximum {max_per_minute} messages per minute.")
 
+
+class TooManyLoginAttemptsError(RateLimitError):
+    """Raised before the password is checked, so a locked-out caller costs no
+    Argon2 work. The message is identical whether or not the username exists,
+    so it cannot be used to enumerate accounts."""
+
+    def __init__(self, lockout_minutes: int):
+        self.lockout_minutes = lockout_minutes
+        super().__init__(
+            f"Too many failed login attempts. Try again in {lockout_minutes} minutes."
+        )
