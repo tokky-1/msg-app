@@ -5,7 +5,7 @@ from core.dependencies import get_current_user
 from core.security import create_access_token
 from db.connect import get_db
 from models.user import User
-from schema.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from schema.auth import LoginRequest, PublicUser, RegisterRequest, TokenResponse, UserResponse
 from services.user_service import UserService
 
 authrouter = APIRouter(prefix="/auth", tags=["auth"])
@@ -38,7 +38,7 @@ def me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
-@authrouter.get("/users/{username}", response_model=UserResponse)
+@authrouter.get("/users/{username}", response_model=PublicUser)
 def get_user(
     username: str,
     current_user: User = Depends(get_current_user),
@@ -51,5 +51,8 @@ def get_user(
     empty list for a fresh conversation, which carries no id. Reuses the
     conversation-partner lookup, so an unknown username 404s and your own
     username is refused exactly as it is everywhere else.
+
+    Responds with PublicUser, not UserResponse: the caller needs the id, not
+    the other person's email address.
     """
     return UserService(db).get_conversation_partner(current_user.id, username)

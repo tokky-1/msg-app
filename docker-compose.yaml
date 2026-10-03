@@ -1,11 +1,12 @@
 services:
   db:
     image: postgres:15
-    env_file:
-      - ./backend/.env
+    # No env_file here on purpose. backend/.env holds SECRET_KEY and the rest
+    # of the app's config, and Postgres needs none of it — handing it over
+    # would put the JWT signing key inside the database container for nothing.
     environment:
-      # ${...} is interpolated from compose's own env file, not from env_file
-      # above, so run compose with: --env-file ./backend/.env
+      # ${...} is interpolated from compose's own env file, so run compose
+      # with: --env-file ./backend/.env
       - POSTGRES_USER=${DB_USER:?set DB_USER - run compose with --env-file ./backend/.env}
       - POSTGRES_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD - run compose with --env-file ./backend/.env}
       - POSTGRES_DB=${DB_NAME:?set DB_NAME - run compose with --env-file ./backend/.env}
