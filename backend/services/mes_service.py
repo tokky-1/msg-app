@@ -7,6 +7,7 @@ from core.errors import (EditWindowExpiredError, MessageAccessDeniedError, Messa
 
 # Configuration constants
 MAX_MESSAGES_PER_MINUTE = 10
+RATE_LIMIT_WINDOW = timedelta(minutes=1)
 EDIT_WINDOW_MINUTES = 10
 
 class MessageService:
@@ -22,12 +23,22 @@ class MessageService:
         if self.user_repo.get_by_id(message_data.receiver_id) is None:
             raise ReceiverNotFoundError(message_data.receiver_id)
 
-        # 1. Rate Limiting Check
-        one_minute_ago = datetime.now(timezone.utc) - timedelta(minutes=1)
-        recent_count = self.repo.count_messages_sent_since(sender_id, one_minute_ago)
-        
+        # 1. Rate limiting.
+        # The lock comes first: counting and inserting are two statements, and
+        # without it two of this sender's requests can both read a count under
+        # the cap and both go through. It is released when create_message
+        # commits, or when the session rolls back on the raise below.
+        self.user_repo.lock_for_update(sender_id)
+
+        recent_count = self.repo.count_sends_in_window(sender_id, RATE_LIMIT_WINDOW)
+
         if recent_count >= MAX_MESSAGES_PER_MINUTE:
             raise RateLimitExceededError(MAX_MESSAGES_PER_MINUTE)
+
+        # Logged before the message and in the same transaction, so quota is
+        # spent whether or not the message survives: deleting your own
+        # messages no longer buys you a fresh allowance.
+        self.repo.record_send(sender_id)
 
         return self.repo.create_message(
             sender_id=sender_id,

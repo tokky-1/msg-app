@@ -46,6 +46,11 @@ export function SessionProvider({ children }) {
   const [online, setOnline] = useState(false)
 
   const socketRef = useRef(null)
+  // A send over the socket is answered by either the echoed message or an
+  // error frame — the rate limit being the one you will actually meet. This
+  // holds the promise for the send in flight so the caller can await the
+  // verdict instead of the rejection vanishing.
+  const pendingSendRef = useRef(null)
   const retryRef = useRef(0)
   const [retryTick, setRetryTick] = useState(0)
 
@@ -167,12 +172,33 @@ export function SessionProvider({ children }) {
       } catch {
         return
       }
-      if (frame.type === 'message') mergeMessages([frame.message])
+      if (frame.type === 'message') {
+        mergeMessages([frame.message])
+        if (pendingSendRef.current && frame.message.sender_id === account?.id) {
+          pendingSendRef.current.settle(null)
+        }
+      } else if (frame.type === 'error') {
+        const problem = new Error(frame.error ?? 'The server rejected that message.')
+        if (pendingSendRef.current) pendingSendRef.current.settle(problem)
+      }
     }
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       setOnline(false)
       if (closedByUs) return
+
+      // 1008 is the only code routes/ws.py closes with before accepting: the
+      // token no longer resolves to a user. After the 30-minute expiry every
+      // reconnect would meet the same answer, and there is no refresh
+      // endpoint to recover with, so end the session rather than retry into a
+      // wall. A socket already open when the token expires keeps working -
+      // the server only checks at the handshake - and lands here when it next
+      // drops.
+      if (event.code === 1008) {
+        signOut()
+        return
+      }
+
       // Back off so a server that is down is not hammered: 1s, 2s, 4s… to 15s.
       const wait = Math.min(1000 * 2 ** retryRef.current, 15000)
       retryRef.current += 1
@@ -187,7 +213,7 @@ export function SessionProvider({ children }) {
       setOnline(false)
       socket.close()
     }
-  }, [token, status, retryTick, mergeMessages])
+  }, [token, status, retryTick, mergeMessages, account?.id, signOut])
 
   /* A frame only carries the message, so the inbox previews and ordering have
      to be re-read. Only when a new id appears — an edit changes no ordering. */
@@ -258,8 +284,24 @@ export function SessionProvider({ children }) {
       if (socket && socket.readyState === WebSocket.OPEN) {
         // The server echoes the saved message back to the sender too, so the
         // bubble appears once it is actually stored — never optimistically.
+        // Resolves on that echo, rejects on an error frame, and gives up if
+        // neither arrives so the composer can never wedge.
+        pendingSendRef.current?.settle(new Error('Replaced by a newer message.'))
         socket.send(JSON.stringify({ receiver_id: receiverId, content }))
-        return
+        return new Promise((resolve, reject) => {
+          const giveUp = window.setTimeout(
+            () => pendingSendRef.current?.settle(new Error('The server did not confirm that message.')),
+            10000,
+          )
+          pendingSendRef.current = {
+            settle(problem) {
+              window.clearTimeout(giveUp)
+              pendingSendRef.current = null
+              if (problem) reject(problem)
+              else resolve()
+            },
+          }
+        })
       }
       const message = await api.sendMessage(receiverId, content).catch((error) => {
         throw handle(error)

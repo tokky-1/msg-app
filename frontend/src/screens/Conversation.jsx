@@ -80,6 +80,8 @@ export function Conversation({ username }) {
     setSending(true)
     setActionError('')
     try {
+      // Resolves only once the server has stored the message, so a rejection
+      // leaves the draft where it is instead of swallowing what was typed.
       await sendMessage(person.id, content)
       setDraft('')
       composer.current?.focus()
@@ -233,7 +235,10 @@ export function Conversation({ username }) {
             rows={1}
             placeholder={`Message ${username}`}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              if (actionError) setActionError('')
+            }}
             onKeyDown={onComposerKeyDown}
           />
           <button

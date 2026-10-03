@@ -14,7 +14,7 @@ export function Account() {
         title="Account"
         small
         sub="Who you are on this server"
-        action={<Live on={online} label={online ? 'Socket online' : 'Socket offline'} />}
+        action={<Live on={online} label={online ? 'Socket connected' : 'Socket closed'} />}
       />
 
       <div className="screen-scroll">

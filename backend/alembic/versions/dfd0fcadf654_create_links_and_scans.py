@@ -1,4 +1,8 @@
-"""create links and scans
+"""create users and messages
+
+The revision id and filename still say "links and scans" from the template
+this was generated against; the id is what alembic tracks, so it is left
+alone. The description is corrected to what the migration actually does.
 
 Revision ID: dfd0fcadf654
 Revises: 

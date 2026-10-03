@@ -19,7 +19,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
+  migrate:
+    build: .
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    env_file: [./backend/.env]
+    environment: [DB_HOST=db]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+ 
   app:
     build: .
     ports:
@@ -29,13 +38,15 @@ services:
     environment:
       - DB_HOST=db
     depends_on:
-      db:
-        condition: service_healthy
+       db:
+         condition: service_healthy
+       migrate:
+         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
       interval: 10s
       timeout: 5s
       retries: 3
-
+ 
 volumes:
   postgres_data:
