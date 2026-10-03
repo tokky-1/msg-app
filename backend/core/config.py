@@ -3,6 +3,7 @@ from functools import lru_cache
 
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
@@ -20,8 +21,21 @@ class Settings(BaseSettings):
     DB_PASSWORD: str
     DB_NAME: str
     @property
-    def DB_URL(self) -> str:
-        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}" 
+    def DB_URL(self) -> URL:
+        """Built with URL.create, not an f-string.
+
+        A password containing @ : / ? # or % silently produces a wrong or
+        unparseable URL when interpolated by hand; URL.create escapes each
+        part for us. It also keeps the password out of repr().
+        """
+        return URL.create(
+            "postgresql+psycopg2",
+            username=self.DB_USER,
+            password=self.DB_PASSWORD,
+            host=self.DB_HOST,
+            port=self.DB_PORT,
+            database=self.DB_NAME,
+        )
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 @lru_cache()
 def get_settings():

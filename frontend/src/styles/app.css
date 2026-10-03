@@ -30,6 +30,23 @@
   letter-spacing: 0.01em;
 }
 
+/* On a very small phone the word costs more room than it earns. The dot
+   stays and the label is still announced. */
+@media (max-width: 22.5rem) {
+  .live-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .live {
+    gap: 0;
+  }
+}
+
 .live-dot {
   width: 0.5rem;
   height: 0.5rem;
@@ -585,6 +602,7 @@
 .frame {
   height: 100dvh;
   max-width: 46rem;
+  min-width: 0;
   margin: 0 auto;
   background-color: var(--paper);
   background-image: var(--grain);
@@ -605,6 +623,7 @@
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -962,8 +981,13 @@
 
 .convo {
   display: grid;
+  /* minmax(0, 1fr), not the implicit auto: an auto column refuses to go below
+     its content's min-width, which pushed the whole page into a horizontal
+     scroll on a 320px phone. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -980,11 +1004,15 @@
 }
 
 .convo-head-name {
+  display: block;
   font-family: var(--display);
   font-weight: 700;
   font-size: var(--t-lead);
   letter-spacing: -0.02em;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .convo-head-grow {
@@ -1138,6 +1166,7 @@
 
 .composer-input {
   flex: 1;
+  min-width: 0;
   resize: none;
   min-height: 2.875rem;
   max-height: 9rem;

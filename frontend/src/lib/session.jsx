@@ -183,9 +183,22 @@ export function SessionProvider({ children }) {
       }
     }
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       setOnline(false)
       if (closedByUs) return
+
+      // 1008 is the only code routes/ws.py closes with before accepting: the
+      // token no longer resolves to a user. After the 30-minute expiry every
+      // reconnect would meet the same answer, and there is no refresh
+      // endpoint to recover with, so end the session rather than retry into a
+      // wall. A socket already open when the token expires keeps working -
+      // the server only checks at the handshake - and lands here when it next
+      // drops.
+      if (event.code === 1008) {
+        signOut()
+        return
+      }
+
       // Back off so a server that is down is not hammered: 1s, 2s, 4s… to 15s.
       const wait = Math.min(1000 * 2 ** retryRef.current, 15000)
       retryRef.current += 1
@@ -200,7 +213,7 @@ export function SessionProvider({ children }) {
       setOnline(false)
       socket.close()
     }
-  }, [token, status, retryTick, mergeMessages, account?.id])
+  }, [token, status, retryTick, mergeMessages, account?.id, signOut])
 
   /* A frame only carries the message, so the inbox previews and ordering have
      to be re-read. Only when a new id appears — an edit changes no ordering. */
