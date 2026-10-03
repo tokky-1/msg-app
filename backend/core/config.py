@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # Failed logins allowed for one username from one IP before that pair is
+    # locked out. Keyed on the pair, not the username alone: a per-username
+    # lockout would let anyone lock anyone else out of their account.
+    AUTH_MAX_ATTEMPTS: int = 3
+    # A single address trying three guesses each against many usernames is
+    # still a sweep, so the address has its own ceiling.
+    AUTH_MAX_ATTEMPTS_PER_IP: int = 10
+    AUTH_LOCKOUT_MINUTES: int = 15
+
     DB_ECHO: bool = False
     LOG_LEVEL: str = "INFO"
     CORS_ORIGINS: list[str]

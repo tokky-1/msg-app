@@ -13,6 +13,7 @@ from core.config import settings
 from models.user import User
 from models.message import Message
 from models.send_event import MessageSendEvent
+from models.auth_attempt import AuthAttempt
 config = context.config
 # Deliberately not set_main_option: alembic puts that through configparser,
 # which treats % in a password as interpolation syntax. The engine is built

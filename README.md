@@ -81,6 +81,19 @@ way to a fresh allowance. The window is computed by the database so the app
 container's clock cannot skew it, and the sender's row is locked for the length
 of the check so two simultaneous sends cannot both pass.
 
+**Logging in is throttled.** Three failed attempts for one username from one
+address, and that pair is refused with `429` for 15 minutes. The counter is
+keyed on the pair rather than the username alone, so nobody can lock you out
+of your own account by failing three times on purpose; a separate, higher
+ceiling on the address itself (10) stops one machine spraying three guesses
+each across many usernames. Getting the password right clears what was counted
+against you, so two typos cost nothing. The check runs *before* the password
+is verified, which matters because verification is deliberately expensive —
+otherwise a locked-out guesser could still burn CPU. Unknown usernames are
+counted exactly like known ones, and the refusal reads the same either way, so
+none of it reveals which accounts exist. All three numbers are settings
+(`AUTH_MAX_ATTEMPTS`, `AUTH_MAX_ATTEMPTS_PER_IP`, `AUTH_LOCKOUT_MINUTES`).
+
 ## Known limitations
 
 - **The WebSocket manager is in-memory and single-instance.** `core/ws_manager.py`
@@ -108,8 +121,14 @@ of the check so two simultaneous sends cannot both pass.
   maps `5432:5432` so you can attach a client from the host. Do not publish it
   anywhere real — and note that if you already run Postgres on the host, both
   bind 5432 and which one a host client reaches is not defined.
-- **Authentication is not rate limited.** Login and registration accept
-  unlimited attempts; only message sending is capped.
+- **Registration is not rate limited.** Login is; account creation is not, so
+  one address can still create accounts in bulk.
+- **The login throttle trusts `request.client.host`.** Behind a proxy that is
+  the proxy's address, and every client would share one bucket. Run uvicorn
+  with `--proxy-headers --forwarded-allow-ips=<proxy>` so it fills in the real
+  address from a source it trusts. `X-Forwarded-For` is deliberately *not*
+  read directly — a caller could set it per request and get a fresh allowance
+  every time.
 
 ## Layout
 
