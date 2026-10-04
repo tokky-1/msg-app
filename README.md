@@ -118,7 +118,7 @@ none of it reveals which accounts exist. All three numbers are settings
   else propagate so a real bug is loud instead of being swallowed into a socket
   that silently stops working. The `finally` still deregisters the connection.
 - **The published database port is for development only.** `docker-compose.yaml`
-  maps `5432:5432` so you can attach a client from the host. Do not publish it
+  maps `5433:5432` so you can attach a client from the host. Do not publish it
   anywhere real — and note that if you already run Postgres on the host, both
   bind 5432 and which one a host client reaches is not defined.
 - **Registration is not rate limited.** Login is; account creation is not, so
