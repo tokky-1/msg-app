@@ -13,7 +13,10 @@ from types import SimpleNamespace
 import pytest
 
 # core.config validates these at import time, and importing the service pulls it
-# in. Real values from .env still win; these only keep a bare checkout importable.
+# in. These are set before that import and core.config loads .env with
+# override=False, so THESE win, not .env - which is what keeps the unit tests
+# off any real database. Tests that do want one build their own engine from
+# .env; see tests/test_auth_attempt_repo.py.
 os.environ.setdefault("SECRET_KEY", "test-secret-never-used")
 os.environ.setdefault("CORS_ORIGINS", '["http://testserver"]')
 os.environ.setdefault("DB_HOST", "localhost")

@@ -2,11 +2,14 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 class RegisterRequest(BaseModel): # when using model object is always a dictionary
     email: EmailStr = Field(description="User's Email")
-    username :str = Field(description="User's name") 
+    username: str = Field(min_length=1, max_length=150, description="User's name")
     password : str = Field(description="password of the User")
 
 class LoginRequest(BaseModel):
-    username:  str = Field(description=" User's name")
+    # Capped here as well as on register: a login attempt is written to
+    # auth_attempts by an unauthenticated caller, so the length has to be
+    # bounded before it reaches the database.
+    username: str = Field(min_length=1, max_length=150, description="User's name")
     password : str = Field(description="password of the User")
 
 class TokenResponse(BaseModel):

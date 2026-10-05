@@ -157,10 +157,12 @@ export function SessionProvider({ children }) {
     if (!token || status !== 'in') return undefined
 
     let closedByUs = false
+    let everOpened = false
     const socket = api.openSocket(token)
     socketRef.current = socket
 
     socket.onopen = () => {
+      everOpened = true
       retryRef.current = 0
       setOnline(true)
     }
@@ -183,26 +185,38 @@ export function SessionProvider({ children }) {
       }
     }
 
-    socket.onclose = (event) => {
-      setOnline(false)
-      if (closedByUs) return
-
-      // 1008 is the only code routes/ws.py closes with before accepting: the
-      // token no longer resolves to a user. After the 30-minute expiry every
-      // reconnect would meet the same answer, and there is no refresh
-      // endpoint to recover with, so end the session rather than retry into a
-      // wall. A socket already open when the token expires keeps working -
-      // the server only checks at the handshake - and lands here when it next
-      // drops.
-      if (event.code === 1008) {
-        signOut()
-        return
-      }
-
-      // Back off so a server that is down is not hammered: 1s, 2s, 4s… to 15s.
+    const backOff = () => {
+      // 1s, 2s, 4s… to 15s, so a server that is down is not hammered.
       const wait = Math.min(1000 * 2 ** retryRef.current, 15000)
       retryRef.current += 1
       window.setTimeout(() => setRetryTick((n) => n + 1), wait)
+    }
+
+    socket.onclose = async () => {
+      setOnline(false)
+      if (closedByUs) return
+
+      // Do NOT key this on event.code === 1008. routes/ws.py rejects a bad
+      // token by closing before accept(), so the handshake never completes
+      // and there is no close frame for the browser to read: measured, both
+      // a garbage token and an expired one arrive here as 1006, never 1008.
+      // Anything that only watched for 1008 would retry a dead token forever.
+      //
+      // A socket that never opened might mean the token died or might mean
+      // the server is down, and those want opposite answers. /auth/me settles
+      // it: 401 is the token, anything else is the network.
+      if (everOpened) {
+        backOff()
+        return
+      }
+
+      try {
+        await api.me()
+        backOff() // the session is fine, so this was the connection
+      } catch (problem) {
+        if (problem instanceof api.ApiError && problem.status === 401) signOut()
+        else backOff()
+      }
     }
 
     socket.onerror = () => socket.close()

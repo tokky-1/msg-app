@@ -82,14 +82,21 @@ container's clock cannot skew it, and the sender's row is locked for the length
 of the check so two simultaneous sends cannot both pass.
 
 **Logging in is throttled.** Three failed attempts for one username from one
-address, and that pair is refused with `429` for 15 minutes. The counter is
+address, and that pair is refused with `429` until the oldest of those
+attempts ages out of the 15-minute window. The response carries `Retry-After`
+with the measured number of seconds. The counter is
 keyed on the pair rather than the username alone, so nobody can lock you out
 of your own account by failing three times on purpose; a separate, higher
 ceiling on the address itself (10) stops one machine spraying three guesses
 each across many usernames. Getting the password right clears what was counted
-against you, so two typos cost nothing. The check runs *before* the password
-is verified, which matters because verification is deliberately expensive —
-otherwise a locked-out guesser could still burn CPU. Unknown usernames are
+against you, so two typos cost nothing. Counting and recording happen as one
+step, under a Postgres advisory lock keyed on the address, *before* the
+password is verified — all three of those matter. Counting and then recording
+afterwards left a ~100ms gap in which simultaneous guesses all read zero: 30
+at once got 17 through against a cap of 3. The lock makes it atomic across
+replicas, which an in-process lock could not. And refusing before the verify
+means a locked-out guesser cannot spend our CPU, since hashing is deliberately
+expensive. Unknown usernames are
 counted exactly like known ones, and the refusal reads the same either way, so
 none of it reveals which accounts exist. All three numbers are settings
 (`AUTH_MAX_ATTEMPTS`, `AUTH_MAX_ATTEMPTS_PER_IP`, `AUTH_LOCKOUT_MINUTES`).
@@ -123,6 +130,26 @@ none of it reveals which accounts exist. All three numbers are settings
   bind 5432 and which one a host client reaches is not defined.
 - **Registration is not rate limited.** Login is; account creation is not, so
   one address can still create accounts in bulk.
+- **The per-address ceiling can lock out a whole building.** Ten failures from
+  one address blocks that address for the window, including people typing the
+  right password. Behind campus NAT, carrier-grade NAT, or a load balancer,
+  everyone shares one address and ten strangers' typos are enough. Raise
+  `AUTH_MAX_ATTEMPTS_PER_IP`, or make sure the real client address reaches the
+  app (below), before putting this anywhere with shared egress.
+- **The Dockerfile `CMD` has no `--proxy-headers`.** That is fine under
+  compose, where the app is reached directly, but on ECS or behind any load
+  balancer `request.client.host` is the balancer's address, so every user
+  lands in one throttle bucket. Add
+  `--proxy-headers --forwarded-allow-ips=<balancer>` to the command there.
+- **Usernames are case-sensitive.** `CaseTest` and `casetest` register as two
+  different accounts, which is confusable in a messenger. The throttle keys
+  match the lookup, so this is not a way around the limit — but if you ever
+  normalise usernames, normalise the throttle keys in the same change or it
+  becomes one.
+- **Expired login attempts need an occasional sweep.** A login clears the
+  expired rows for the address it is serving, so active addresses tidy up
+  after themselves; `scripts/purge_auth_attempts.py` covers addresses that
+  never come back.
 - **The login throttle trusts `request.client.host`.** Behind a proxy that is
   the proxy's address, and every client would share one bucket. Run uvicorn
   with `--proxy-headers --forwarded-allow-ips=<proxy>` so it fills in the real
