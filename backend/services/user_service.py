@@ -67,30 +67,28 @@ class UserService:
     def authenticate(self, data: LoginRequest, client_ip: str = "unknown") -> User:
         window = timedelta(minutes=settings.AUTH_LOCKOUT_MINUTES)
 
-        # Checked before the hash, not after. Verifying a password is
-        # deliberately expensive - including the dummy verify below - so a
-        # guesser who is already locked out must not be able to spend our CPU
-        # by carrying on.
-        identity_failures = self.attempt_repo.count_for_identity(
-            data.username, client_ip, window
+        # One atomic step: count and record together, under a lock, before
+        # the password is touched. Counting first and recording afterwards
+        # left a ~100ms gap in which concurrent guesses all saw zero.
+        retry_after = self.attempt_repo.reserve(
+            data.username,
+            client_ip,
+            window,
+            settings.AUTH_MAX_ATTEMPTS,
+            settings.AUTH_MAX_ATTEMPTS_PER_IP,
         )
-        ip_failures = self.attempt_repo.count_for_ip(client_ip, window)
+        if retry_after is not None:
+            raise TooManyLoginAttemptsError(retry_after)
 
-        if (
-            identity_failures >= settings.AUTH_MAX_ATTEMPTS
-            or ip_failures >= settings.AUTH_MAX_ATTEMPTS_PER_IP
-        ):
-            raise TooManyLoginAttemptsError(settings.AUTH_LOCKOUT_MINUTES)
-
+        # The expensive part runs outside the lock. The attempt is already
+        # counted, so nothing here can hand out extra guesses.
         user = self.user_repo.get_user_by_username(data.username)
 
         if user is None:
             verifyhash(data.password, _DUMMY_HASH)
-            self.attempt_repo.record_failure(data.username, client_ip)
             raise AuthenticationError("Incorrect username or password")
 
         if not verifyhash(data.password, user.hashed_password):
-            self.attempt_repo.record_failure(data.username, client_ip)
             raise AuthenticationError("Incorrect username or password")
 
         # Getting it right wipes the slate, so two typos then the real

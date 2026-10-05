@@ -42,10 +42,20 @@ DOMAIN_ERROR_STATUS = {
 
 def make_domain_error_handler(status_code: int):
     # RFC 9110: a 401 must tell the client which auth scheme to use.
-    headers = {"WWW-Authenticate": "Bearer"} if status_code == 401 else None
+    base_headers = {"WWW-Authenticate": "Bearer"} if status_code == 401 else {}
 
     async def handler(request: Request, exc: DomainError):
-        return JSONResponse(status_code=status_code, content={"detail": exc.message}, headers=headers)
+        headers = dict(base_headers)
+        # RFC 9110 again: a 429 should say how long to wait. Any domain error
+        # that knows its own answer gets to supply it.
+        retry_after = getattr(exc, "retry_after_seconds", None)
+        if retry_after is not None:
+            headers["Retry-After"] = str(int(retry_after))
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": exc.message},
+            headers=headers or None,
+        )
     return handler
 
 for error_cls, status_code in DOMAIN_ERROR_STATUS.items():

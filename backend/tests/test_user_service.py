@@ -1,9 +1,14 @@
-"""Login throttling in services/user_service.py, against mocked repositories.
+"""Login throttling in services/user_service.py, against a mocked repository.
 
-Boundary pinned here: the check is ``failures >= AUTH_MAX_ATTEMPTS``, so with
-the default of 3 the first three wrong passwords are answered with 401 and the
-fourth attempt is refused with the rate-limit error before the password is
-looked at.
+The service's job here is narrow: ask the repository to reserve an attempt,
+refuse if it says no, and clear the slate on success. The counting itself is
+one atomic step inside the repository, so that is tested against a real
+database in test_auth_attempt_repo.py - a mock cannot catch a mistake in the
+SQL, and the concurrency bug these tests originally missed lived exactly
+there.
+
+Boundary pinned here: the service refuses whenever reserve() returns a number
+of seconds, and proceeds whenever it returns None.
 """
 
 from datetime import timedelta
@@ -15,35 +20,33 @@ from core.errors import AuthenticationError, TooManyLoginAttemptsError
 from schema.auth import LoginRequest
 
 IP = "203.0.113.7"
-OTHER_IP = "198.51.100.4"
 
 
 @pytest.fixture
 def throttle(mocker):
-    """A stateful stand-in for AuthAttemptRepository.
+    """Stateful stand-in for AuthAttemptRepository.
 
-    It stores the failures it was told about and answers the counts from that
-    store, so an off-by-one in the threshold cannot hide behind a hand-picked
-    return value.
+    reserve() is modelled the way the real one behaves: it records the attempt
+    itself and answers from what it has recorded, so the count and the write
+    cannot drift apart in the test the way they did in the code.
     """
     repo = mocker.patch(
         "services.user_service.AuthAttemptRepository", autospec=True
     ).return_value
     failures = []
 
-    repo.record_failure.side_effect = lambda username, client_ip: failures.append(
-        (username, client_ip)
-    )
-    repo.count_for_identity.side_effect = lambda username, client_ip, window: sum(
-        1 for u, i in failures if u == username and i == client_ip
-    )
-    repo.count_for_ip.side_effect = lambda client_ip, window: sum(
-        1 for _, i in failures if i == client_ip
-    )
+    def reserve(username, client_ip, window, max_identity, max_ip):
+        identity = sum(1 for u, i in failures if u == username and i == client_ip)
+        from_ip = sum(1 for _, i in failures if i == client_ip)
+        if identity >= max_identity or from_ip >= max_ip:
+            return 42  # seconds; the exact value comes from SQL in real life
+        failures.append((username, client_ip))
+        return None
 
     def clear(username, client_ip):
         failures[:] = [(u, i) for u, i in failures if not (u == username and i == client_ip)]
 
+    repo.reserve.side_effect = reserve
     repo.clear_for_identity.side_effect = clear
     repo.failures = failures
     return repo
@@ -84,14 +87,29 @@ def test_three_wrong_passwords_are_401_and_the_fourth_is_refused(
         with pytest.raises(AuthenticationError):
             attempt(service, f"guess{n}")
 
-    assert len(throttle.failures) == settings.AUTH_MAX_ATTEMPTS
-
     with pytest.raises(TooManyLoginAttemptsError) as exc_info:
         attempt(service, "guess-again")
 
-    assert exc_info.value.lockout_minutes == settings.AUTH_LOCKOUT_MINUTES
-    # The refusal must land before the password is even looked up.
+    assert exc_info.value.retry_after_seconds == 42
+    # The refusal lands before the password is even looked up.
     assert user_repo.get_user_by_username.call_count == settings.AUTH_MAX_ATTEMPTS
+
+
+def test_the_attempt_is_reserved_before_the_password_is_looked_at(
+    service, throttle, user_repo, real_user
+):
+    """The ordering is the fix for the race, so it is worth pinning.
+
+    reserve() must have both counted and recorded before the service goes
+    anywhere near the user record or the hash.
+    """
+    order = []
+    throttle.reserve.side_effect = lambda *a, **k: order.append("reserve")
+    user_repo.get_user_by_username.side_effect = lambda u: order.append("lookup") or real_user
+
+    attempt(service, "correct")
+
+    assert order == ["reserve", "lookup"]
 
 
 def test_the_correct_password_still_works_on_the_last_allowed_try(
@@ -106,14 +124,12 @@ def test_the_correct_password_still_works_on_the_last_allowed_try(
     assert attempt(service, "correct") is real_user
     assert throttle.failures == [], "a success clears what was counted against you"
 
-    # And the slate really is clean: a full run of wrong guesses is available
-    # again rather than the next one tipping over.
     for n in range(settings.AUTH_MAX_ATTEMPTS):
         with pytest.raises(AuthenticationError):
             attempt(service, f"later{n}")
 
 
-def test_an_unknown_username_is_counted_the_same_way(service, throttle, user_repo, real_user):
+def test_an_unknown_username_is_counted_the_same_way(service, throttle, user_repo):
     """Otherwise a sweep across guessed usernames would be free."""
     user_repo.get_user_by_username.return_value = None
 
@@ -125,45 +141,18 @@ def test_an_unknown_username_is_counted_the_same_way(service, throttle, user_rep
         attempt(service, "guess-again", username="ghost")
 
 
-def test_locking_one_pair_does_not_lock_the_account_elsewhere(
-    service, throttle, user_repo, real_user
-):
-    """The counter is keyed on username *and* address.
-
-    Keyed on the username alone, anyone could lock anyone else out of their
-    account with three deliberate failures.
-    """
+def test_a_refused_attempt_does_not_clear_the_slate(service, throttle, user_repo, real_user):
+    """A lockout must not be escapable by sending the right password."""
     user_repo.get_user_by_username.return_value = real_user
 
     for n in range(settings.AUTH_MAX_ATTEMPTS):
         with pytest.raises(AuthenticationError):
-            attempt(service, f"guess{n}", ip=IP)
+            attempt(service, f"guess{n}")
 
     with pytest.raises(TooManyLoginAttemptsError):
-        attempt(service, "correct", ip=IP)
+        attempt(service, "correct")
 
-    # The real owner, somewhere else, is unaffected.
-    assert attempt(service, "correct", ip=OTHER_IP) is real_user
-
-
-def test_one_address_cannot_spray_three_guesses_across_many_usernames(
-    service, throttle, user_repo
-):
-    user_repo.get_user_by_username.return_value = None
-
-    allowed = 0
-    for n in range(settings.AUTH_MAX_ATTEMPTS_PER_IP + 5):
-        try:
-            attempt(service, "guess", username=f"victim{n}")
-        except AuthenticationError:
-            allowed += 1
-        except TooManyLoginAttemptsError:
-            break
-
-    assert allowed == settings.AUTH_MAX_ATTEMPTS_PER_IP, (
-        "the per-address ceiling should stop the sweep even though every "
-        "username is fresh"
-    )
+    throttle.clear_for_identity.assert_not_called()
 
 
 def test_the_window_handed_to_the_repository_is_the_configured_lockout(
@@ -172,6 +161,14 @@ def test_the_window_handed_to_the_repository_is_the_configured_lockout(
     user_repo.get_user_by_username.return_value = real_user
     attempt(service, "correct")
 
-    expected = timedelta(minutes=settings.AUTH_LOCKOUT_MINUTES)
-    assert throttle.count_for_identity.call_args.args[2] == expected
-    assert throttle.count_for_ip.call_args.args[1] == expected
+    username, client_ip, window, max_identity, max_ip = throttle.reserve.call_args.args
+    assert window == timedelta(minutes=settings.AUTH_LOCKOUT_MINUTES)
+    assert max_identity == settings.AUTH_MAX_ATTEMPTS
+    assert max_ip == settings.AUTH_MAX_ATTEMPTS_PER_IP
+    assert (username, client_ip) == ("ada", IP)
+
+
+def test_the_message_reports_the_measured_wait_not_a_fixed_one():
+    assert "45 seconds" in TooManyLoginAttemptsError(45).message
+    assert "1 minute" in TooManyLoginAttemptsError(60).message
+    assert "2 minutes" in TooManyLoginAttemptsError(61).message

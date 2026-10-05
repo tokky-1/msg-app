@@ -90,10 +90,19 @@ class RateLimitExceededError(RateLimitError):
 class TooManyLoginAttemptsError(RateLimitError):
     """Raised before the password is checked, so a locked-out caller costs no
     Argon2 work. The message is identical whether or not the username exists,
-    so it cannot be used to enumerate accounts."""
+    so it cannot be used to enumerate accounts.
 
-    def __init__(self, lockout_minutes: int):
-        self.lockout_minutes = lockout_minutes
-        super().__init__(
-            f"Too many failed login attempts. Try again in {lockout_minutes} minutes."
-        )
+    retry_after_seconds is measured, not assumed: the window rolls, so three
+    failures at t=0,1,2 free a slot at t=15 rather than fifteen minutes after
+    the last one. Saying "15 minutes" regardless was simply wrong.
+    """
+
+    def __init__(self, retry_after_seconds: int):
+        self.retry_after_seconds = max(1, int(retry_after_seconds))
+        super().__init__(f"Too many failed login attempts. Try again in {self._spell()}.")
+
+    def _spell(self) -> str:
+        if self.retry_after_seconds < 60:
+            return f"{self.retry_after_seconds} seconds"
+        minutes = -(-self.retry_after_seconds // 60)
+        return f"{minutes} minute" + ("s" if minutes != 1 else "")
