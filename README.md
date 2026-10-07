@@ -6,9 +6,9 @@ username to start, and messages land the moment they are sent.
 FastAPI + Postgres on the back, React + Vite on the front, talking over REST
 for history and a WebSocket for live delivery.
 
-| Chats | Rate limit refusing the 11th message |
-| --- | --- |
-| ![The chat list](docs/screenshots/chats.jpg) | ![Rate limit exceeded](docs/screenshots/rate-limit.jpg) |
+| Chats |
+| --- | 
+| ![The chat list](docs/screenshots/chats.jpg) | 
 
 ## Run it
 
